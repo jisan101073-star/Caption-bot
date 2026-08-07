@@ -39,14 +39,13 @@ def home():
 def run_server():
     app_flask.run(host='0.0.0.0', port=int(os.environ.get("PORT", 8080)))
 
-# একাধিক টোকেন রিড করার ফাংশন (আপনার রিঅ্যাকশন বটের স্টাইলে)
+# একাধিক টোকেন রিড করার ফাংশন
 def get_tokens():
     tokens = []
     for i in range(1, 50):
         token = os.getenv(f"BOT_TOKEN_{i}")
         if token:
             tokens.append(token)
-    # যদি আলাদাভাবে সিঙ্গেল BOT_TOKEN থাকে সেটিও চেক করবে
     single_token = os.getenv("BOT_TOKEN")
     if single_token and single_token not in tokens:
         tokens.append(single_token)
@@ -212,24 +211,31 @@ def build_caption_keyboard(topic: str) -> InlineKeyboardMarkup:
 
 
 # =====================================================================
-# COMMAND HANDLERS
+# COMMAND HANDLERS (UPDATED WELCOME MESSAGE)
 # =====================================================================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user_first_name = update.effective_user.first_name if update.effective_user else "there"
+    user_first_name = escape_md_v2(update.effective_user.first_name if update.effective_user else "there")
     welcome_text = (
-        f"👋 Hey {user_first_name}, welcome to *Caption Bot*\\!\n\n"
-        "I turn any topic, mood, or keyword into a ready\\-to\\-post "
-        "social media caption \\(with hashtags included\\) ✨\n\n"
-        "*Quick start:*\n"
+        f"🔥 *Welcome {user_first_name} to Caption Bot\\!* 🔥\n\n"
+        "✨ I am your personal AI assistant to generate awesome, eye\\-catching social media captions with matching hashtags instantly\\.\n\n"
+        "📌 *How to use me:*\n"
+        "Just send a command like this:\n"
         "`/caption sunset at the beach`\n"
-        "`/caption Monday motivation`\n\n"
-        "*Other commands:*\n"
-        "📂 /categories \\- see available caption styles\n"
-        "❓ /help \\- full usage guide\n\n"
-        "Try it now — send me a topic with /caption 👇"
+        "`/caption gym motivation`\n"
+        "`/caption my cute cat`\n\n"
+        "📂 *Features:*\n"
+        "• Attitude, Love, Sad, Motivation, Gaming, Travel & more\\!\n"
+        "• One\\-tap copy blocks & direct share options\\.\n\n"
+        "👉 *Tap /categories to explore styles or start typing your topic right now\\!*"
     )
-    await update.message.reply_text(welcome_text, parse_mode=ParseMode.MARKDOWN_V2)
+    
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📂 View Categories", callback_data="show_categories")],
+        [InlineKeyboardButton("⚡ Quick Help", callback_data="help_callback")]
+    ])
+    
+    await update.message.reply_text(welcome_text, parse_mode=ParseMode.MARKDOWN_V2, reply_markup=keyboard)
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     help_text = (
@@ -341,17 +347,25 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         elif action == "show_categories":
             await categories_command(update, context)
 
+        elif action == "help_callback":
+            help_text = (
+                "*📖 How to use Caption Bot*\n\n"
+                "*/caption* `<topic or mood>`\n"
+                "Generates a caption \\+ hashtags for whatever you type\\.\n"
+                "Example: `/caption gym day`"
+            )
+            await query.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN_V2)
+
     except Exception:
         logger.exception("Error handling button callback")
         await query.message.reply_text("😕 Something went wrong handling that button.")
 
 
 # =====================================================================
-# MAIN FUNCTION (MULTIPLE TOKENS + FLASK)
+# MAIN FUNCTION
 # =====================================================================
 
 async def main():
-    # Flask সার্ভার ব্যাকগ্রাউন্ডে চালু রাখার জন্য
     Thread(target=run_server, daemon=True).start()
     
     tokens = get_tokens()
@@ -359,11 +373,9 @@ async def main():
         logger.error("No tokens found! Please set BOT_TOKEN or BOT_TOKEN_1 in environment variables.")
         return
 
-    # একাধিক টোকেন দিয়ে বট রান করার লজিক (আপনার রিঅ্যাকশন বটের মতো)
     for token in tokens:
         app = Application.builder().token(token).concurrent_updates(True).build()
         
-        # হ্যান্ডলারগুলো যোগ করা
         app.add_handler(CommandHandler("start", start))
         app.add_handler(CommandHandler("help", help_command))
         app.add_handler(CommandHandler("categories", categories_command))
@@ -374,7 +386,7 @@ async def main():
         await app.initialize()
         await app.start()
         await app.updater.start_polling(drop_pending_updates=True)
-        logger.info("A caption bot instance started successfully!")
+        logger.info("A caption bot instance started successfully and polling!")
 
     await asyncio.Event().wait()
 
