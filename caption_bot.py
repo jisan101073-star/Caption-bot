@@ -227,7 +227,6 @@ def generate_batch_captions(cat_key: str, lang: str, offset: int = 0) -> List[st
             caption = f"Mast vibe! {caption}"
             
         tags = " ".join(random.sample(cat_data["hashtags"], k=min(4, len(cat_data["hashtags"]))))
-        # html.escape ব্যবহার করা হয়েছে যাতে কোনো স্পেশাল ক্যারেক্টার বা '!' এরর না ঘটায়
         full_text = html.escape(f"{size_badge} {caption}\n\n{tags}")
         generated.append(full_text)
         
@@ -364,9 +363,10 @@ async def setup_commands(application: Application):
 async def main():
     Thread(target=run_server, daemon=True).start()
     
-    token = os.getenv("BOT_TOKEN")
+    # BOT_TOKEN1 ব্যবহার করা হচ্ছে
+    token = os.getenv("BOT_TOKEN1")
     if not token:
-        logger.error("No BOT_TOKEN found in environment variables!")
+        logger.error("No BOT_TOKEN1 found in environment variables!")
         return
 
     app = Application.builder().token(token).build()
@@ -378,7 +378,7 @@ async def main():
     await setup_commands(app)
     await app.start()
     app.updater.start_polling(drop_pending_updates=True)
-    logger.info("Caption Maker Bot is running with bug fixes!")
+    logger.info("Caption Maker Bot is running with BOT_TOKEN1 successfully!")
 
     await asyncio.Event().wait()
 
