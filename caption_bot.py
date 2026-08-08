@@ -3,6 +3,7 @@ import random
 import logging
 import asyncio
 import sqlite3
+import html
 from threading import Thread
 from flask import Flask
 from typing import List
@@ -104,7 +105,7 @@ CATEGORIES = {
     "aesthetic": {
         "label": "✨ Aesthetic Caption",
         "templates": {
-            "short": ["Living my best life in silence. ✨", "Soft colors and quiet moments.", "Pure soul, peaceful mind."],
+            "short": ["Living my best life in silence.", "Soft colors and quiet moments.", "Pure soul, peaceful mind."],
             "medium": ["Some moments in life cannot be measured by time, but by how deeply they touch your soul.", "Creating a life that feels good on the inside, not just one that looks good on the outside."],
             "long": ["In a world full of noise, finding peace in the little details is an art. Let your mind wander where the Wi-Fi is weak and your heart feels completely at home."]
         },
@@ -113,7 +114,7 @@ CATEGORIES = {
     "stylish": {
         "label": "💎 Stylish Caption",
         "templates": {
-            "short": ["Classy is when you have a lot to say but you stay silent. 🖤", "Born to stand out, never to fit in.", "Elegance is an attitude."],
+            "short": ["Classy is when you have a lot to say but you stay silent.", "Born to stand out, never to fit in.", "Elegance is an attitude."],
             "medium": ["I don't compete for a spot, I create my own lane. Watch and learn.", "Too glam to give a damn, too chic to repeat."],
             "long": ["Style is a way to say who you are without having to speak. Keep your heels, head, and standards high because standard is something you never compromise."]
         },
@@ -122,7 +123,7 @@ CATEGORIES = {
     "islamic": {
         "label": "🌙 Islamic Caption",
         "templates": {
-            "short": ["Verily, with hardship comes ease. 🌙", "Trust Allah's perfect timing.", "Alhamdulillah always."],
+            "short": ["Verily, with hardship comes ease.", "Trust Allah's perfect timing.", "Alhamdulillah always."],
             "medium": ["Do not despair, for Allah is with those who have patience through every storm.", "Keep your heart pure and intentions sincere for the sake of Allah alone."],
             "long": ["No matter how dark the night is, the morning light of hope given by Allah will always find its way to your soul. Trust His plan blindly."]
         },
@@ -131,7 +132,7 @@ CATEGORIES = {
     "motivation": {
         "label": "🔥 Motivation & Gym",
         "templates": {
-            "short": ["Sweat today, shine tomorrow. 🔥", "Be stronger than your excuses.", "Hustle in silence, let success make the noise."],
+            "short": ["Sweat today, shine tomorrow.", "Be stronger than your excuses.", "Hustle in silence, let success make the noise."],
             "medium": ["The body achieves what the mind believes. Push past your limits every single day.", "Hard work beats talent when talent doesn't work hard."],
             "long": ["Success isn't given to you on a silver platter, you have to earn it through blood, sweat, and relentless discipline every single day of your life."]
         },
@@ -140,7 +141,7 @@ CATEGORIES = {
     "success": {
         "label": "🚀 Success & Hustle",
         "templates": {
-            "short": ["Focus on the goal. 🚀", "Building an empire from scratch.", "Dream big, work hard."],
+            "short": ["Focus on the goal.", "Building an empire from scratch.", "Dream big, work hard."],
             "medium": ["Don't stop when you're tired, stop when you're done. Your future self will thank you.", "Success is not overnight; it's a small daily progress adding up."],
             "long": ["They will laugh at your dreams until you succeed, then they will ask how you did it. Keep your head down and let your achievements do all the talking."]
         },
@@ -149,7 +150,7 @@ CATEGORIES = {
     "friendship": {
         "label": "🤝 Friendship & Friends",
         "templates": {
-            "short": ["Partners in crime. 🤝", "Good times + Crazy friends = Great memories.", "Chosen family."],
+            "short": ["Partners in crime.", "Good times + Crazy friends = Great memories.", "Chosen family."],
             "medium": ["We didn't realize we were making memories, we just knew we were having fun together.", "True friends are never apart, maybe in distance but never in heart."],
             "long": ["A real friend is one who walks in when the rest of the world walks out. Grateful for the ones who know all my flaws and still choose to stay."]
         },
@@ -167,7 +168,7 @@ CATEGORIES = {
     "funny": {
         "label": "😂 Funny Caption",
         "templates": {
-            "short": ["I need a 6-month vacation, twice a year. 😂", "Error 404: Bio not found.", "Born to rest, forced to work."],
+            "short": ["I need a 6-month vacation, twice a year.", "Error 404: Bio not found.", "Born to rest, forced to work."],
             "medium": ["I'm not lazy, I'm just on energy-saving mode until further notice.", "My bed and I are deeply in love, but my alarm clock is jealous."],
             "long": ["I put the 'pro' in procrastinate. If laziness was an Olympic sport, I would definitely win the gold medal without even standing up from my couch."]
         },
@@ -176,7 +177,7 @@ CATEGORIES = {
     "attitude": {
         "label": "😎 Attitude Caption",
         "templates": {
-            "short": ["I don't chase, I attract. 😎", "My attitude is based on how you treat me.", "Unmatched energy only."],
+            "short": ["I don't chase, I attract.", "My attitude is based on how you treat me.", "Unmatched energy only."],
             "medium": ["I am who I am. Your approval is neither required nor desired.", "Treat me like a king and I'll treat you like a queen, treat me like a game and I'll show you how it's played."],
             "long": ["People will always judge your journey without knowing your struggles. Let them talk, because your success will answer all their questions permanently."]
         },
@@ -185,7 +186,7 @@ CATEGORIES = {
     "travel": {
         "label": "✈️ Travel & Nature",
         "templates": {
-            "short": ["Collect moments, not things. ✈️", "Born to roam, world is my home.", "Escape the ordinary."],
+            "short": ["Collect moments, not things.", "Born to roam, world is my home.", "Escape the ordinary."],
             "medium": ["To travel is to live, and nature has the best therapy for a tired soul.", "The view is always worth the steep climb."],
             "long": ["Traveling opens your mind, fills your heart with wonder, and leaves you with stories that last a lifetime. Let's find some beautiful places to get lost."]
         },
@@ -194,7 +195,7 @@ CATEGORIES = {
     "couple": {
         "label": "❤️ Couple & Love",
         "templates": {
-            "short": ["My favorite person. ❤️", "You + Me = Forever.", "Home is wherever you are."],
+            "short": ["My favorite person.", "You + Me = Forever.", "Home is wherever you are."],
             "medium": ["Every love story is beautiful, but ours is my absolute favorite piece of art.", "You are my today and all of my tomorrows."],
             "long": ["I never truly understood what it meant to find my home in another person until the day I met you. Holding your hand is my safest place on earth."]
         },
@@ -226,13 +227,14 @@ def generate_batch_captions(cat_key: str, lang: str, offset: int = 0) -> List[st
             caption = f"Mast vibe! {caption}"
             
         tags = " ".join(random.sample(cat_data["hashtags"], k=min(4, len(cat_data["hashtags"]))))
-        full_text = f"{size_badge} {caption}\n\n{tags}"
+        # html.escape ব্যবহার করা হয়েছে যাতে কোনো স্পেশাল ক্যারেক্টার বা '!' এরর না ঘটায়
+        full_text = html.escape(f"{size_badge} {caption}\n\n{tags}")
         generated.append(full_text)
         
     return generated
 
 # =====================================================================
-# 4. BOT HANDLERS (Flow like Name Maker Bot)
+# 4. BOT HANDLERS
 # =====================================================================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -241,7 +243,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     set_user_state(user_id, category="aesthetic", language="english")
     
     welcome_text = (
-        f"✨ <b>Welcome {name} to Caption Maker Bot!</b> ✨\n\n"
+        f"✨ <b>Welcome {html.escape(name)} to Caption Maker Bot!</b> ✨\n\n"
         "Main aapke liye best Aesthetic, Stylish, Islamic, Motivation, Sad, Funny aur Attitude captions generate kar sakta hoon.\n\n"
         "👇 <b>Niche diye gaye button se option select karein:</b>"
     )
@@ -282,7 +284,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             lang = data.split("_")[1]
             set_user_state(user_id, language=lang)
             
-            # Categories button layout (2 columns for neat design)
             keys = list(CATEGORIES.keys())
             kb_buttons = []
             for i in range(0, len(keys), 2):
@@ -377,9 +378,9 @@ async def main():
     await setup_commands(app)
     await app.start()
     app.updater.start_polling(drop_pending_updates=True)
-    logger.info("Caption Maker Bot is running with expanded categories!")
+    logger.info("Caption Maker Bot is running with bug fixes!")
 
     await asyncio.Event().wait()
 
 if __name__ == "__main__":
-    asyncio.main(main())
+    asyncio.run(main())
