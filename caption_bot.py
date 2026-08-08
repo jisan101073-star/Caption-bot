@@ -1,7 +1,6 @@
 import os
 import random
 import logging
-import asyncio
 import sqlite3
 import html
 from threading import Thread
@@ -25,7 +24,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # =====================================================================
-# 1. LOGGING & FLASK SERVER
+# 1. LOGGING & FLASK SERVER (For 24/7 Uptime on Render)
 # =====================================================================
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -99,7 +98,7 @@ def db_increment_stats():
     conn.close()
 
 # =====================================================================
-# 3. EXPANDED PRE-DEFINED CATEGORIES & CAPTIONS DATA
+# 3. CATEGORIES & CAPTIONS DATA
 # =====================================================================
 CATEGORIES = {
     "aesthetic": {
@@ -355,38 +354,29 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         logger.exception("Callback error: %s", e)
 
 # =====================================================================
-# 5. SETUP COMMANDS & MAIN
+# 5. MAIN FUNCTION
 # =====================================================================
-async def setup_commands(application: Application):
-    commands = [
-        BotCommand("start", "বট শুরু করুন ও মেনু দেখুন"),
-    ]
-    await application.bot.set_my_commands(commands)
-
-async def main():
+def main():
+    # Flask সার্ভার ব্যাকগ্রাউন্ডে চালু করা হচ্ছে (Render-এর পোর্ট বাইন্ড করার জন্য)
     Thread(target=run_server, daemon=True).start()
     
+    # Render-এর Environment Variable থেকে BOT_TOKEN1 রিড করা হচ্ছে
     token = os.getenv("BOT_TOKEN1")
     if not token:
-        logger.error("No BOT_TOKEN1 found in environment variables!")
+        logger.error("No BOT_TOKEN1 found in environment variables! Please check Render dashboard.")
         return
 
+    # Telegram Application তৈরি করা
     app = Application.builder().token(token).build()
 
+    # হ্যান্ডলারগুলো যোগ করা
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button_callback))
 
-    await app.initialize()
+    logger.info("Caption Maker Bot is starting with run_polling()...")
     
-    # পূর্বের কোনো ওয়েবহুক থাকলে তা ডিলিট করে পোলিং চালু করা হচ্ছে
-    await app.bot.delete_webhook(drop_pending_updates=True)
-    
-    await setup_commands(app)
-    await app.start()
-    app.updater.start_polling(drop_pending_updates=True)
-    logger.info("Caption Maker Bot is running successfully with webhook cleared!")
-
-    await asyncio.Event().wait()
+    # বটের কমান্ড মেনু সেট করা এবং পোলিং শুরু করা (এটি নিজে থেকেই সব হ্যান্ডেল করবে)
+    app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
