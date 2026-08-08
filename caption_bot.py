@@ -237,24 +237,27 @@ def generate_batch_captions(cat_key: str, lang: str, offset: int = 0) -> List[st
 # =====================================================================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user_id = update.effective_user.id
-    name = update.effective_user.first_name if update.effective_user else "Friend"
-    set_user_state(user_id, category="aesthetic", language="english")
-    
-    welcome_text = (
-        f"✨ <b>Welcome {html.escape(name)} to Caption Maker Bot!</b> ✨\n\n"
-        "Main aapke liye best Aesthetic, Stylish, Islamic, Motivation, Sad, Funny aur Attitude captions generate kar sakta hoon.\n\n"
-        "👇 <b>Niche diye gaye button se option select karein:</b>"
-    )
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("✍️ Make Caption", callback_data="make_caption")],
-        [InlineKeyboardButton("⭐ Saved Captions", callback_data="show_saved")]
-    ])
-    
-    if update.message:
-        await update.message.reply_text(welcome_text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
-    elif update.callback_query:
-        await update.callback_query.message.edit_text(welcome_text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+    try:
+        user_id = update.effective_user.id
+        name = update.effective_user.first_name if update.effective_user else "Friend"
+        set_user_state(user_id, category="aesthetic", language="english")
+        
+        welcome_text = (
+            f"✨ <b>Welcome {html.escape(name)} to Caption Maker Bot!</b> ✨\n\n"
+            "Main aapke liye best Aesthetic, Stylish, Islamic, Motivation, Sad, Funny aur Attitude captions generate kar sakta hoon.\n\n"
+            "👇 <b>Niche diye gaye button se option select karein:</b>"
+        )
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("✍️ Make Caption", callback_data="make_caption")],
+            [InlineKeyboardButton("⭐ Saved Captions", callback_data="show_saved")]
+        ])
+        
+        if update.message:
+            await update.message.reply_text(welcome_text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+        elif update.callback_query:
+            await update.callback_query.message.edit_text(welcome_text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+    except Exception as e:
+        logger.exception("Error in start handler: %s", e)
 
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
@@ -363,7 +366,6 @@ async def setup_commands(application: Application):
 async def main():
     Thread(target=run_server, daemon=True).start()
     
-    # BOT_TOKEN1 ব্যবহার করা হচ্ছে
     token = os.getenv("BOT_TOKEN1")
     if not token:
         logger.error("No BOT_TOKEN1 found in environment variables!")
@@ -375,10 +377,14 @@ async def main():
     app.add_handler(CallbackQueryHandler(button_callback))
 
     await app.initialize()
+    
+    # পূর্বের কোনো ওয়েবহুক থাকলে তা ডিলিট করে পোলিং চালু করা হচ্ছে
+    await app.bot.delete_webhook(drop_pending_updates=True)
+    
     await setup_commands(app)
     await app.start()
     app.updater.start_polling(drop_pending_updates=True)
-    logger.info("Caption Maker Bot is running with BOT_TOKEN1 successfully!")
+    logger.info("Caption Maker Bot is running successfully with webhook cleared!")
 
     await asyncio.Event().wait()
 
