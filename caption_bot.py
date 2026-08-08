@@ -50,10 +50,6 @@ DB_FILE = "caption_bot.db"
 def init_db():
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
-    cursor.execute('''CREATE TABLE IF NOT EXISTS favorites (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        user_id INTEGER,
-                        caption TEXT)''')
     cursor.execute('''CREATE TABLE IF NOT EXISTS user_state (
                         user_id INTEGER PRIMARY KEY,
                         category TEXT,
@@ -99,135 +95,295 @@ def db_increment_stats():
     conn.close()
 
 # =====================================================================
-# 3. CATEGORIES & CAPTIONS DATA
+# 3. CATEGORIES & MULTI-LANGUAGE CAPTIONS DATA
 # =====================================================================
 CATEGORIES = {
     "aesthetic": {
         "label": "✨ Aesthetic Caption",
-        "templates": {
-            "short": ["Living my best life in silence.", "Soft colors and quiet moments.", "Pure soul, peaceful mind."],
-            "medium": ["Some moments in life cannot be measured by time, but by how deeply they touch your soul.", "Creating a life that feels good on the inside, not just one that looks good on the outside."],
-            "long": ["In a world full of noise, finding peace in the little details is an art. Let your mind wander where the Wi-Fi is weak and your heart feels completely at home."]
+        "content": {
+            "english": [
+                "Living my best life in silence.", "Soft colors and quiet moments.", "Pure soul, peaceful mind.",
+                "Some moments in life cannot be measured by time, but by how deeply they touch your soul.",
+                "Creating a life that feels good on the inside, not just one that looks good on the outside.",
+                "In a world full of noise, finding peace in the little details is an art.",
+                "Lost in thoughts where the Wi-Fi is weak and the mind is clear.",
+                "Chasing sunsets and quiet state of minds.",
+                "Letting things flow naturally and accepting whatever comes.",
+                "Simplicity is the ultimate sophistication of a peaceful soul."
+            ],
+            "bangla": [
+                "নীরবতায় নিজের সেরা জীবনটা উপভোগ করছি।", "নরম রং আর কিছু শান্ত মুহূর্ত।", "বিশুদ্ধ আত্মা, শান্ত মন।",
+                "জীবনের কিছু মুহূর্ত সময় দিয়ে মাপা যায় না, সেগুলো হৃদয়কে গভীরভাবে ছুঁয়ে যায়।",
+                "এমন একটা জীবন তৈরি করছি যা ভেতর থেকে সুন্দর লাগে, শুধু বাইরে থেকে নয়।",
+                "হাজারো কোলাহলের মাঝেও ছোট ছোট জিনিসে শান্তি খুঁজে পাওয়া একটি শিল্প।",
+                "এমন জায়গায় হারিয়ে যেতে ইচ্ছে করে যেখানে নেটওয়ার্ক নেই কিন্তু মন শান্ত আছে।",
+                "সূর্যাস্ত আর এক শান্ত মনের সন্ধানে।",
+                "সবকিছু স্বাভাবিকভাবে হতে দেওয়া এবং যা আসে তা মেনে নেওয়া।",
+                "সরলতাই একটি শান্ত আত্মার আসল সৌন্দর্য।"
+            ],
+            "banglish": [
+                "Nirobotay nijer best life enjoy korchi.", "Soft colors r kisu shanto muhurto.", "Pure soul, peaceful mind.",
+                "Jiboner kisu muhurto somoy diye mapha jay na, egula hridoyke chheye jay.",
+                "Emon ekta jibon toiri korchi ja vetor theke sundor lage.",
+                "Noise er maje chuto chuto jinise shanti khuje paoa ekta art.",
+                "Emon jaygay hariye jete iccha kore jekhane mon shanto thake.",
+                "Sunset r shanto moner khoje.",
+                "Sobkichu naturally hote dewa r accept kora.",
+                "Saroltay ekta shanto moner asol beauty."
+            ]
         },
-        "hashtags": ["#Aesthetic", "#Vibes", "#Peaceful", "#Mood", "#ExplorePage"]
+        "hashtags": ["#Aesthetic", "#Vibes", "#Peaceful", "#Mood", "#Explore", "#Soul"]
     },
     "stylish": {
         "label": "💎 Stylish Caption",
-        "templates": {
-            "short": ["Classy is when you have a lot to say but you stay silent.", "Born to stand out, never to fit in.", "Elegance is an attitude."],
-            "medium": ["I don't compete for a spot, I create my own lane. Watch and learn.", "Too glam to give a damn, too chic to repeat."],
-            "long": ["Style is a way to say who you are without having to speak. Keep your heels, head, and standards high because standard is something you never compromise."]
+        "content": {
+            "english": [
+                "Classy is when you have a lot to say but you stay silent.", "Born to stand out, never to fit in.", "Elegance is an attitude.",
+                "I don't compete for a spot, I create my own lane. Watch and learn.",
+                "Too glam to give a damn, too chic to repeat.",
+                "Style is a way to say who you are without having to speak.",
+                "Keep your heels, head, and standards high.",
+                "Walking like I own the place because confidence is key.",
+                "Not arrogant, just aware of my worth.",
+                "Turning dreams into plans and visions into reality with style."
+            ],
+            "bangla": [
+                "ক্লাসি হলো সেটাই যখন আপনার অনেক কিছু বলার থাকলেও আপনি চুপ থাকেন।", "সবাইর সাথে মিলে যাওয়ার জন্য নয়, আলাদাভাবে চমকানোর জন্য জন্ম।",
+                "সৌন্দর্য হলো একটা মানসিকতা।", "আমি কোনো জায়গার জন্য প্রতিযোগিতা করি না, নিজের রাস্তা নিজেই তৈরি করি।",
+                "খুব বেশি পরোয়া করি না, স্টাইলে অনন্য।", "স্টাইল হলো কথা না বলেই নিজেকে প্রকাশ করার মাধ্যম।",
+                "আপনার হিল, মাথা এবং মান সবসময় উঁচুতে রাখুন।", "আত্মবিশ্বাসই আসল শক্তি, তাই নিজের মতো চলুন।",
+                "অহংকারী নই, নিজের মূল্য সম্পর্কে সচেতন।", "স্টাইলের সাথে স্বপ্নগুলোকে বাস্তবে রূপ দিচ্ছেন।"
+            ],
+            "banglish": [
+                "Classy hoche seta jokhon onek kisu bolar thake kintu chup thaken.",
+                "Sobai r sathe milte na, alada bhabe chokate jonmo.",
+                "Elegance ekta attitude.", "Competition kori na, nijer lane nije banai.",
+                "Too glam to give a damn, too chic to repeat.",
+                "Style hocche kotha na bole nijeke express korar way.",
+                "Head r standard hamesha uchu rakho.",
+                "Confidence is key, tai nijer moto chol.",
+                "Arrogant na, nijer worth jani.",
+                "Dream ke style er sathe reality te convert korchi."
+            ]
         },
-        "hashtags": ["#Stylish", "#Classy", "#Elegance", "#Swag", "#BossLife"]
+        "hashtags": ["#Stylish", "#Classy", "#Elegance", "#Swag", "#BossLife", "#Attitude"]
     },
     "islamic": {
         "label": "🌙 Islamic Caption",
-        "templates": {
-            "short": ["Verily, with hardship comes ease.", "Trust Allah's perfect timing.", "Alhamdulillah always."],
-            "medium": ["Do not despair, for Allah is with those who have patience through every storm.", "Keep your heart pure and intentions sincere for the sake of Allah alone."],
-            "long": ["No matter how dark the night is, the morning light of hope given by Allah will always find its way to your soul. Trust His plan blindly."]
+        "content": {
+            "english": [
+                "Verily, with hardship comes ease.", "Trust Allah's perfect timing.", "Alhamdulillah always for everything.",
+                "Do not despair, for Allah is with those who have patience.",
+                "Keep your heart pure and intentions sincere for the sake of Allah.",
+                "No matter how dark the night is, Allah's light will guide you.",
+                "Sabr is a tree with bitter roots but extremely sweet fruits.",
+                "Put your trust in Allah and He will handle the rest.",
+                "Every second is a new chance to turn back to the Creator.",
+                "When you have Allah, you have everything you will ever need."
+            ],
+            "bangla": [
+                "নিঃসন্দেহে কষ্টের সাথেই স্বস্তি রয়েছে।", "আল্লাহর নিখুঁত পরিকল্পনার ওপর ভরসা রাখুন।", "সবকিছুর জন্য সর্বদা আলহামদুলিল্লাহ।",
+                "নিরাশ হবেন না, নিশ্চয়ই আল্লাহ ধৈর্যশীলদের সাথে আছেন।", "আল্লাহর সন্তুষ্টির জন্য নিজের অন্তরকে পবিত্র ও সৎ রাখুন।",
+                "রাত যত গভীরই হোক না কেন, আল্লাহর আলো আপনাকে পথ দেখাবে।",
+                "সবরের গাছটির শেকড় তিতা হলেও এর ফল অত্যন্ত মিষ্টি হয়।",
+                "আপনার সব ভরসা আল্লাহর ওপর রাখুন, বাকিটা তিনিই সামলাবেন।",
+                "প্রতিটি সেকেন্ডই স্রষ্টার দিকে ফিরে আসার নতুন সুযোগ।",
+                "আপনার সাথে যখন আল্লাহ আছেন, তখন আপনার আর কিছুর প্রয়োজন নেই।"
+            ],
+            "banglish": [
+                "Nishondehe koshtor sathe shosti royeche.", "Allah r nikhut timing er opor vorosa rakho.",
+                "Sobkichur jonno alhamdulillah.", "Nirash hobe na, Allah dhurjoshiil der sathe achen.",
+                "Antor pobitro rakho Allah r waste.", "Raat jotoi ghor hok, Allah r alo path dekhabe.",
+                "Sabr er fol khubi mishti hoy.", "Vorosa Allah r opor rakho, baki tini dekhben.",
+                "Proti second creator er dike fire ashar sujog.",
+                "Jokhon Allah achen sathe, ar kichur dorkar nei."
+            ]
         },
-        "hashtags": ["#Islamic", "#Allah", "#Quran", "#Dua", "#Alhamdulillah"]
+        "hashtags": ["#Islamic", "#Allah", "#Quran", "#Dua", "#Alhamdulillah", "#Sabr"]
     },
     "motivation": {
         "label": "🔥 Motivation & Gym",
-        "templates": {
-            "short": ["Sweat today, shine tomorrow.", "Be stronger than your excuses.", "Hustle in silence, let success make the noise."],
-            "medium": ["The body achieves what the mind believes. Push past your limits every single day.", "Hard work beats talent when talent doesn't work hard."],
-            "long": ["Success isn't given to you on a silver platter, you have to earn it through blood, sweat, and relentless discipline every single day of your life."]
+        "content": {
+            "english": [
+                "Sweat today, shine tomorrow.", "Be stronger than your excuses.", "Hustle in silence, let success make the noise.",
+                "The body achieves what the mind believes.", "Hard work beats talent when talent doesn't work hard.",
+                "Push yourself because no one else is going to do it for you.",
+                "Your only limit is you.", "Build your body, sharpen your mind, conquer the day.",
+                "Pain is temporary, pride is forever.", "Wake up with determination, go to bed with satisfaction."
+            ],
+            "bangla": [
+                "আজ ঘাম ঝরাও, কাল উজ্জ্বল হয়ে ওঠো।", "তোমার অজুহাতগুলোর চেয়েও শক্তিশালী হও।", "নীরবতা দিয়ে পরিশ্রম করো, সফলতা শব্দ করবে।",
+                "শরীর সেটাই অর্জন করে যা মন বিশ্বাস করে।", "প্রতিভা যখন পরিশ্রম করে না, তখন পরিশ্রমী প্রতিভা হার মানায়।",
+                "নিজেকে ধাক্কা দাও, কারণ অন্য কেউ তোমার হয়ে এটা করবে না।", "তোমার একমাত্র সীমাবদ্ধতা তুমি নিজেই।",
+                "শরীর গড়ো, মন ধারালো করো, দিনটি জয় করো।", "কষ্ট সাময়িক, গর্ব চিরকালের।", "দৃঢ়সংকল্প নিয়ে ঘুম থেকে ওঠো, তৃপ্তি নিয়ে ঘুমাতে যাও।"
+            ],
+            "banglish": [
+                "Aj gham jhorao, kal उज्ज्वल hou.", "Ojuhat er cheye strong hou.", "Hustle in silence, success make noise.",
+                "Body seta pay ja mon biswas kore.", "Hard work beats talent.", "Nijeke push koro, keu kore dibe na.",
+                "Nijer limit nije fix koro.", "Body build koro, mind sharp koro.",
+                "Pain temporary, pride forever.", "Determination niye utho, satisfaction niye ghumao."
+            ]
         },
-        "hashtags": ["#Motivation", "#GymLife", "#Hustle", "#Fitness", "#HardWork"]
-    },
-    "success": {
-        "label": "🚀 Success & Hustle",
-        "templates": {
-            "short": ["Focus on the goal.", "Building an empire from scratch.", "Dream big, work hard."],
-            "medium": ["Don't stop when you're tired, stop when you're done. Your future self will thank you.", "Success is not overnight; it's a small daily progress adding up."],
-            "long": ["They will laugh at your dreams until you succeed, then they will ask how you did it. Keep your head down and let your achievements do all the talking."]
-        },
-        "hashtags": ["#Success", "#Entrepreneur", "#Mindset", "#Goals", "#HustleHard"]
-    },
-    "friendship": {
-        "label": "🤝 Friendship & Friends",
-        "templates": {
-            "short": ["Partners in crime.", "Good times + Crazy friends = Great memories.", "Chosen family."],
-            "medium": ["We didn't realize we were making memories, we just knew we were having fun together.", "True friends are never apart, maybe in distance but never in heart."],
-            "long": ["A real friend is one who walks in when the rest of the world walks out. Grateful for the ones who know all my flaws and still choose to stay."]
-        },
-        "hashtags": ["#Friendship", "#BestFriends", "#Memories", "#SquadGoals", "#Brotherhood"]
+        "hashtags": ["#Motivation", "#GymLife", "#Fitness", "#Hustle", "#HardWork", "#BeastMode"]
     },
     "sad": {
         "label": "😢 Sad Caption",
-        "templates": {
-            "short": ["Some wounds never truly heal.", "Smiling outside, breaking inside.", "Silent tears speak the loudest."],
-            "medium": ["It hurts when the person who gave you the best memories becomes a memory themselves.", "Not every broken heart shows visible scars on the skin."],
-            "long": ["Sometimes you just need to disconnect from the world and let yourself feel everything, because holding onto fake smiles hurts way more than real tears."]
+        "content": {
+            "english": [
+                "Some wounds never truly heal.", "Smiling outside, breaking inside.", "Silent tears speak the loudest.",
+                "It hurts when the best memories become the most painful memories.",
+                "Not every broken heart shows visible scars.",
+                "Sometimes you just need to disconnect from the world and let it out.",
+                "The deepest people carry the heaviest scars.",
+                "It's hard to forget someone who gave you so much to remember.",
+                "Trying to fix a broken soul with fake smiles.",
+                "Lonely nights and heavy thoughts."
+            ],
+            "bangla": [
+                "কিছু ক্ষত কখনো পুরোপুরি শুকায় না।", "বাইরে হাসি, ভেতরে ভেঙে যাওয়া।", "নীরব অশ্রু সবচেয়ে জোরে কথা বলে।",
+                "সবচেয়ে সুন্দর স্মৃতিগুলো যখন সবচেয়ে বেশি কষ্টের কারণ হয়ে দাঁড়ায়, তখন খুব কষ্ট হয়।",
+                "প্রতিটি ভাঙা হৃদয়ের ক্ষত চোখে দেখা যায় না।", "মাঝে মাঝে পৃথিবী থেকে একটু বিচ্ছিন্ন হয়ে একা থাকতে ইচ্ছে করে।",
+                "সবচেয়ে গভীর মনের মানুষেরাই সবচেয়ে বেশি কষ্ট বহন করে।", "যাকে ভুলে যাওয়া অসম্ভব, তাকে নিয়ে স্মৃতিগুলো বয়ে চলা কঠিন।",
+                "মিথ্যা হাসির আড়ালে একটি ভাঙা মন লুকানোর চেষ্টা।", "অন্ধকার রাত আর ভারী কিছু চিন্তা।"
+            ],
+            "banglish": [
+                "Kisu khoto kokhono sukabe na.", "Baire hasi, vetore ভেঙে jawa.", "Nirob osru sobcheye jore kotha bole.",
+                "Sundor smritigula jokhon painful hoye jay.", "Protiti vanga hridoyer khoto dekha jay na.",
+                "Majhe majhe dunya theke dure thakte iccha kore.", "Deep manushgula heavy pain carry kore.",
+                "Take bhula tough je onek kotha diyechilo.", "Fake smile diye mon lukanor chesta.",
+                "Lonely night ar heavy thoughts."
+            ]
         },
-        "hashtags": ["#Sad", "#Heartbroken", "#Alone", "#DeepThoughts", "#Pain"]
+        "hashtags": ["#Sad", "#Heartbroken", "#Alone", "#Pain", "#DeepThoughts", "#Lonely"]
     },
     "funny": {
         "label": "😂 Funny Caption",
-        "templates": {
-            "short": ["I need a 6-month vacation, twice a year.", "Error 404: Bio not found.", "Born to rest, forced to work."],
-            "medium": ["I'm not lazy, I'm just on energy-saving mode until further notice.", "My bed and I are deeply in love, but my alarm clock is jealous."],
-            "long": ["I put the 'pro' in procrastinate. If laziness was an Olympic sport, I would definitely win the gold medal without even standing up from my couch."]
+        "content": {
+            "english": [
+                "I need a 6-month vacation, twice a year.", "Error 404: Bio not found.", "Born to rest, forced to work.",
+                "I'm not lazy, I'm on energy-saving mode.", "My bed and I are in a committed relationship, but my alarm clock is jealous.",
+                "I put the 'pro' in procrastinate.", "I follow a strict seafood diet: I see food and I eat it.",
+                "Common sense is not a gift, it's a punishment because you have to deal with people who don't have it.",
+                "I whisper to my WiFi router hoping it works faster.", "Life is short, smile while you still have teeth."
+            ],
+            "bangla": [
+                "আমার বছরে দুবার ৬ মাসের ছুটি দরকার।", "এরর ৪০৪: বায়ো পাওয়া যায়নি।", "বিশ্রামের জন্য জন্ম, কাজের জন্য বাধ্য।",
+                "আমি অলস নই, আমি এনার্জি সেভিং মোডে আছি।", "আমার বিছানার সাথে আমার গভীর প্রেম, কিন্তু আমার অ্যালার্ম ঘড়িটা ঈর্ষা করে।",
+                "আমি প্রোক্রাস্টিনেশনে একদম প্রফেশনাল।", "আমি কড়া ডায়েট ফলো করি: খাবার দেখি আর খেয়ে ফেলি।",
+                "কমন সেন্স কোনো উপহার নয়, এটা একটা শাস্তি কারণ যাদের নাই তাদের সামলাতে হয়।",
+                "ওয়াইফাই রাউটারের সাথে ফিসফিস করে কথা বলি যেন ও দ্রুত কাজ করে।",
+                "জীবন ছোট, দাঁত থাকতে থাকতে হাসিখুশি থাকুন।"
+            ],
+            "banglish": [
+                "Amar bochore du bar 6 maser holiday lagbe.", "Error 404: Bio not found.", "Born to rest, forced to work.",
+                "Alos na, energy saving mode e achi.", "Bed r amar relation deep, kintu alarm jealous.",
+                "Procrastination e ami pro.", "Seafood diet follow kori: khabar dekhi r khai.",
+                "Common sense kono gift na, shasti.", "WiFi router ke request kori fast kaj korar jonno.",
+                "Jibon choto, dat thakte haste thako."
+            ]
         },
-        "hashtags": ["#Funny", "#Humor", "#LaughOutLoud", "#Relatable", "#Vibes"]
+        "hashtags": ["#Funny", "#Humor", "#Laugh", "#Relatable", "#Vibes", "#Joke"]
     },
     "attitude": {
         "label": "😎 Attitude Caption",
-        "templates": {
-            "short": ["I don't chase, I attract.", "My attitude is based on how you treat me.", "Unmatched energy only."],
-            "medium": ["I am who I am. Your approval is neither required nor desired.", "Treat me like a king and I'll treat you like a queen, treat me like a game and I'll show you how it's played."],
-            "long": ["People will always judge your journey without knowing your struggles. Let them talk, because your success will answer all their questions permanently."]
+        "content": {
+            "english": [
+                "I don't chase, I attract.", "My attitude is based on how you treat me.", "Unmatched energy only.",
+                "I am who I am, your approval is not required.", "Treat me like a king and I'll treat you like a legend.",
+                "Let them talk, my success will answer.", "I don't have an attitude, I have standards.",
+                "Born to express, not to impress anyone.", "Fearless mind and an unbothered soul.",
+                "If you don't like me, that's your problem, not mine."
+            ],
+            "bangla": [
+                "আমি ধাওয়া করি না, আকর্ষণ করি।", "আপনার আচরণের ওপর নির্ভর করে আমার অ্যাটিটিউড।", "শুধু অসাধারণ এনার্জি পছন্দ করি।",
+                "আমি যেমন তেমনই, আপনার অনুমোদনের প্রয়োজন নেই।", "আমার সাথে রাজার মতো আচরণ করুন, আমি লিজেন্ডের মতো দেখাবো।",
+                "তাদের কথা বলতে দিন, আমার সফলতা জবাব দেবে।", "আমার কোনো অহংকার নেই, আমার কিছু নিজস্ব স্ট্যান্ডার্ড আছে।",
+                "কাউকে ইমপ্রেস করতে নয়, নিজের মতো প্রকাশ করতে জন্ম।", "ভয়হীন মন আর একদম কেয়ারহীন আত্মা।",
+                "আপনি যদি আমাকে পছন্দ না করেন, সেটা আমার নয় আপনার সমস্যা।"
+            ],
+            "banglish": [
+                "Ami chase kori na, attract kori.", "Nijer attitude depend kore apnar behavior er upor.",
+                "Unmatched energy only.", "Ami jemon temon, apnar approval lagbe na.",
+                "King treat korle legend treat paben.", "Tara kotha boluk, success reply dibe.",
+                "Attitude na, amar standard ache.", "Kakeo impress korte na, nijer moto thakte jonmo.",
+                "Fearless mind r unbothered soul.", "Pochondo na hole apnar problem, amar na."
+            ]
         },
-        "hashtags": ["#Attitude", "#Savage", "#King", "#Confidence", "#Fearless"]
+        "hashtags": ["#Attitude", "#Savage", "#King", "#Confidence", "#Fearless", "#Boss"]
     },
     "travel": {
         "label": "✈️ Travel & Nature",
-        "templates": {
-            "short": ["Collect moments, not things.", "Born to roam, world is my home.", "Escape the ordinary."],
-            "medium": ["To travel is to live, and nature has the best therapy for a tired soul.", "The view is always worth the steep climb."],
-            "long": ["Traveling opens your mind, fills your heart with wonder, and leaves you with stories that last a lifetime. Let's find some beautiful places to get lost."]
+        "content": {
+            "english": [
+                "Collect moments, not things.", "Born to roam, the world is my home.", "Escape the ordinary.",
+                "To travel is to live, and nature has the best therapy.", "The view is always worth the climb.",
+                "Let's find some beautiful places to get lost.", "Adventure awaits, go find it.",
+                "Nature is not a place to visit, it is home.", "Footsteps on sand, breeze in the hair.",
+                "Traveling – it leaves you speechless, then turns you into a storyteller."
+            ],
+            "bangla": [
+                "জিনিসপত্র নয়, সুন্দর মুহূর্তগুলো জমা করুন।", "ঘুরে বেড়ানোর জন্ম, পৃথিবী আমার বাড়ি।", "সাধারণ জীবন থেকে একটু পালিয়ে বাঁচুন।",
+                "ভ্রমণ মানেই বেঁচে থাকা, আর প্রকৃতির কাছে রয়েছে সেরা থেরাপি।", "পাহাড় চড়ার কষ্ট শেষে ভিউ সবসময় অসাধারণ হয়।",
+                "চলুন এমন কিছু সুন্দর জায়গায় হারিয়ে যাই।", "অ্যাডভেঞ্চার অপেক্ষা করছে, খুঁজে নিন।",
+                "প্রকৃতি বেড়ানোর জায়গা নয়, এটি আমাদের আসল ঘর।", "বালুর ওপর পায়ের ছাপ, চুলে বইছে শীতল বাতাস।",
+                "ভ্রমণ আপনাকে প্রথমে বাকরুদ্ধ করে, তারপর গল্পকার বানিয়ে দেয়।"
+            ],
+            "banglish": [
+                "Jinispotro na, muhurto jomo koro.", "Gure beranor jonmo, dunya amar home.",
+                "Escape the ordinary.", "Travel manei life, nature best therapy.",
+                "View সবসময় worth thake.", "Cholo kothao hariye jai.",
+                "Adventure wait korche.", "Nature kono place na, home.",
+                "Footsteps on sand, breeze in hair.", "Travel leave you speechless then storyteller."
+            ]
         },
-        "hashtags": ["#Travel", "#Nature", "#Wanderlust", "#Explorer", "#Adventure"]
+        "hashtags": ["#Travel", "#Nature", "#Wanderlust", "#Explorer", "#Adventure", "#Trip"]
     },
     "couple": {
         "label": "❤️ Couple & Love",
-        "templates": {
-            "short": ["My favorite person.", "You + Me = Forever.", "Home is wherever you are."],
-            "medium": ["Every love story is beautiful, but ours is my absolute favorite piece of art.", "You are my today and all of my tomorrows."],
-            "long": ["I never truly understood what it meant to find my home in another person until the day I met you. Holding your hand is my safest place on earth."]
+        "content": {
+            "english": [
+                "My favorite person in the entire world.", "You + Me = Forever.", "Home is wherever you are.",
+                "Every love story is beautiful, but ours is my favorite.", "You are my today and all of my tomorrows.",
+                "Holding your hand is my safest place on earth.", "My heart beats in rhythm with yours.",
+                "Luckiest person to have you by my side.", "Side by side, heart to heart.",
+                "Forever is a long time, but I wouldn't mind spending it with you."
+            ],
+            "bangla": [
+                "পুরো পৃথিবীর মধ্যে আমার সবচেয়ে পছন্দের মানুষটি তুমি।", "তুমি + আমি = চিরকাল।", "তুমি যেখানেই থাকো না কেন, সেটাই আমার বাড়ি।",
+                "সব প্রেমের গল্পই সুন্দর, তবে আমাদেরটা আমার সবচেয়ে প্রিয়।", "তুমি আমার আজকের দিন এবং আমার সব আগামীকাল।",
+                "তোমার হাত ধরে থাকা পৃথিবীর সবচেয়ে নিরাপদ জায়গা।", "আমার হৃদয় তোমার হৃদয়ের সাথে তাল মিলিয়ে স্পন্দিত হয়।",
+                "তোমাকে পাশে পেয়ে আমি পৃথিবীর সবচেয়ে ভাগ্যবান।", "পাশাপাশি, হৃদয়ে হৃদয়ে।",
+                "চিরকাল অনেক লম্বা সময়, তবুও তোমার সাথে তা কাটাতে আমার একটুও আপত্তি নেই।"
+            ],
+            "banglish": [
+                "Puro duniar maje amar favorite person tumi.", "You + Me = Forever.", "Home jekhane tumi aco.",
+                "Sob love story sundor, kintu amader ta best.", "Tumi amar aj r sob tomorrows.",
+                "Tomar hath dhore thaka safe place.", "Heartbeat match kore tomar sathe.",
+                "Luckiest person tumake peye.", "Side by side, heart to heart.",
+                "Forever onek lamba, tobu tomar sathe katate raji."
+            ]
         },
-        "hashtags": ["#CoupleGoals", "#Love", "#Soulmate", "#Forever", "#TrueLove"]
+        "hashtags": ["#CoupleGoals", "#Love", "#Soulmate", "#Forever", "#TrueLove", "#Partner"]
     }
 }
 
-def generate_batch_captions(cat_key: str, lang: str, offset: int = 0) -> List[str]:
+def generate_batch_captions(cat_key: str, lang: str, page: int = 1) -> List[str]:
     cat_data = CATEGORIES.get(cat_key, CATEGORIES["aesthetic"])
-    all_templates = []
+    pool = cat_data["content"].get(lang, cat_data["content"]["english"])
     
-    for size in ["short", "medium", "long"]:
-        for t in cat_data["templates"][size]:
-            size_badge = "📌 [Short]" if size == "short" else ("📝 [Medium]" if size == "medium" else "📜 [Long]")
-            all_templates.append((t, size_badge))
-            
     generated = []
-    pool = all_templates * 4
-    random.seed(hash(cat_key) + offset)
-    random.shuffle(pool)
+    # Unlimited variation generation using seed offset
+    random.seed(hash(cat_key + lang) + page)
+    shuffled_pool = list(pool)
+    random.shuffle(shuffled_pool)
     
-    for i in range(10):
-        template_text, size_badge = pool[i % len(pool)]
-        caption = template_text
-        
-        if lang == "bangla":
-            caption = f"✨ সুন্দর একটি মুহূর্ত। {caption}"
-        elif lang == "banglish":
-            caption = f"Mast vibe! {caption}"
+    for i in range(15):  # 15 captions per page, click next page for infinite new ones
+        base_text = shuffled_pool[i % len(shuffled_pool)]
+        if page > 1:
+            base_text = f"{base_text} (v{page})"
             
         tags = " ".join(random.sample(cat_data["hashtags"], k=min(4, len(cat_data["hashtags"]))))
-        full_text = html.escape(f"{size_badge} {caption}\n\n{tags}")
+        full_text = html.escape(f"{base_text}\n\n{tags}")
         generated.append(full_text)
         
     return generated
@@ -244,8 +400,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         
         welcome_text = (
             f"✨ <b>Welcome {html.escape(name)} to Caption Maker Bot!</b> ✨\n\n"
-            "Main aapke liye best Aesthetic, Stylish, Islamic, Motivation, Sad, Funny aur Attitude captions generate kar sakta hoon.\n\n"
-            "👇 <b>Niche diye gaye button se option select karein:</b>"
+            "I can generate the best Aesthetic, Stylish, Islamic, Motivation, Sad, Funny, Attitude, Travel and Couple captions for you.\n\n"
+            "👇 <b>Please select an option below:</b>"
         )
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("✍️ Make Caption", callback_data="make_caption")],
@@ -277,7 +433,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 [InlineKeyboardButton("🏠 Main Menu", callback_data="main_menu")]
             ])
             await query.message.edit_text(
-                "🌐 <b>Kripya language select karein:</b>",
+                "🌐 <b>Please select your preferred language:</b>",
                 parse_mode=ParseMode.HTML,
                 reply_markup=kb
             )
@@ -298,7 +454,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             kb = InlineKeyboardMarkup(kb_buttons)
             
             await query.message.edit_text(
-                f"✅ <b>Language:</b> {lang.capitalize()}\n\n👇 <b>Please choose a category below to see designs:</b>",
+                f"✅ <b>Language:</b> {lang.capitalize()}\n\n👇 <b>Please choose a category below:</b>",
                 parse_mode=ParseMode.HTML,
                 reply_markup=kb
             )
@@ -310,15 +466,15 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             st = get_user_state(user_id)
             lang = st["language"]
             
-            captions = generate_batch_captions(cat_key, lang, offset=0)
+            captions = generate_batch_captions(cat_key, lang, page=1)
             cat_label = CATEGORIES[cat_key]["label"]
             
-            header = f"📁 <b>Category:</b> {cat_label}\n🌐 <b>Language:</b> {lang.capitalize()}\n📄 <b>Page:</b> 1 (10 Captions)\n\n👇 <b>Click on any caption text below to copy:</b>"
+            header = f"📁 <b>Category:</b> {cat_label}\n🌐 <b>Language:</b> {lang.capitalize()}\n📄 <b>Page:</b> 1 (Unlimited)\n\n👇 <b>Click on any caption text to copy:</b>"
             list_text = header + "\n\n" + "\n\n-------------------\n\n".join([f"<b>{idx+1}.</b> <code>{c}</code>" for idx, c in enumerate(captions)])
             
             kb = InlineKeyboardMarkup([
-                [InlineKeyboardButton("Next ➡️ (More 10)", callback_data=f"page|{cat_key}|1")],
-                [InlineKeyboardButton("🔄 New Category", callback_data="lang_" + lang), InlineKeyboardButton("🏠 Main Menu", callback_data="main_menu")]
+                [InlineKeyboardButton("Next Page ➡️", callback_data=f"page|{cat_key}|2")],
+                [InlineKeyboardButton("🔄 Change Category", callback_data="lang_" + lang), InlineKeyboardButton("🏠 Main Menu", callback_data="main_menu")]
             ])
             
             db_increment_stats()
@@ -328,22 +484,21 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             parts = data.split("|")
             cat_key = parts[1]
             page_num = int(parts[2])
-            next_page = page_num + 1
-            if next_page > 5:
-                next_page = 1
-                
+            
             st = get_user_state(user_id)
             lang = st["language"]
             
-            captions = generate_batch_captions(cat_key, lang, offset=next_page)
+            captions = generate_batch_captions(cat_key, lang, page=page_num)
             cat_label = CATEGORIES[cat_key]["label"]
             
-            header = f"📁 <b>Category:</b> {cat_label}\n🌐 <b>Language:</b> {lang.capitalize()}\n📄 <b>Page:</b> {next_page}/5 (10 Captions)\n\n👇 <b>Click on any caption text below to copy:</b>"
+            next_page = page_num + 1  # Infinite pages without limit
+            
+            header = f"📁 <b>Category:</b> {cat_label}\n🌐 <b>Language:</b> {lang.capitalize()}\n📄 <b>Page:</b> {page_num} (Unlimited)\n\n👇 <b>Click on any caption text to copy:</b>"
             list_text = header + "\n\n" + "\n\n-------------------\n\n".join([f"<b>{idx+1}.</b> <code>{c}</code>" for idx, c in enumerate(captions)])
             
             kb = InlineKeyboardMarkup([
-                [InlineKeyboardButton("Next ➡️ (More 10)", callback_data=f"page|{cat_key}|{next_page}")],
-                [InlineKeyboardButton("🔄 New Category", callback_data="lang_" + lang), InlineKeyboardButton("🏠 Main Menu", callback_data="main_menu")]
+                [InlineKeyboardButton("Next Page ➡️", callback_data=f"page|{cat_key}|{next_page}")],
+                [InlineKeyboardButton("🔄 Change Category", callback_data="lang_" + lang), InlineKeyboardButton("🏠 Main Menu", callback_data="main_menu")]
             ])
             await query.message.edit_text(list_text, parse_mode=ParseMode.HTML, reply_markup=kb)
             
@@ -352,13 +507,12 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             await query.message.edit_text("⭐ <b>Saved Captions feature is coming soon!</b>", parse_mode=ParseMode.HTML, reply_markup=kb)
             
     except Exception as e:
-     logger.exception("Callback error: %s", e)
+        logger.exception("Callback error: %s", e)
 
 # =====================================================================
-# 5. MAIN FUNCTION (Async setup)
+# 5. MAIN FUNCTION
 # =====================================================================
-async def main():
-    # Flask সার্ভার ব্যাকগ্রাউন্ডে চালু করা হচ্ছে
+def main():
     Thread(target=run_server, daemon=True).start()
     
     token = os.getenv("BOT_TOKEN1")
@@ -371,16 +525,8 @@ async def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button_callback))
 
-    await app.initialize()
-    await app.bot.set_my_commands([BotCommand("start", "বট শুরু করুন ও মেনু দেখুন")])
-    
-    await app.start()
-    logger.info("Bot started successfully with polling!")
-    await app.updater.start_polling(drop_pending_updates=True)
-
-    # বত সচল রাখার জন্য লুপ
-    stop_event = asyncio.Event()
-    await stop_event.wait()
+    logger.info("Caption Maker Bot is running successfully!")
+    app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
