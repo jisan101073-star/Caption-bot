@@ -1,17 +1,16 @@
 import os
 import random
-import re
 import logging
 import asyncio
 import sqlite3
-import time
 from threading import Thread
 from flask import Flask
-from typing import Optional, List, Dict
+from typing import List
 from telegram import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     Update,
+    BotCommand,
 )
 from telegram.constants import ParseMode
 from telegram.ext import (
@@ -19,46 +18,31 @@ from telegram.ext import (
     CommandHandler,
     CallbackQueryHandler,
     ContextTypes,
-    MessageHandler,
-    filters,
 )
 from dotenv import load_dotenv
 
 load_dotenv()
 
 # =====================================================================
-# 1. PROPER LOGGING SETUP
+# 1. LOGGING & FLASK SERVER
 # =====================================================================
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO,
 )
-logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger("caption_bot")
 
-# Flask Keep-Alive Server
 app_flask = Flask(__name__)
+
 @app_flask.route('/')
 def home():
-    return "Premium Local Caption Assistant Bot is running 24/7! 🚀"
+    return "Caption Assistant Bot is running 24/7! 🚀"
 
 def run_server():
     app_flask.run(host='0.0.0.0', port=int(os.environ.get("PORT", 8080)))
 
-# Multi-token Support
-def get_tokens() -> List[str]:
-    tokens = []
-    for i in range(1, 50):
-        token = os.getenv(f"BOT_TOKEN_{i}")
-        if token:
-            tokens.append(token)
-    single_token = os.getenv("BOT_TOKEN")
-    if single_token and single_token not in tokens:
-        tokens.append(single_token)
-    return tokens
-
 # =====================================================================
-# 2. PERMANENT SQLITE DATABASE SETUP
+# 2. SQLITE DATABASE (States & Storage)
 # =====================================================================
 DB_FILE = "caption_bot.db"
 
@@ -69,11 +53,10 @@ def init_db():
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         user_id INTEGER,
                         caption TEXT)''')
-    cursor.execute('''CREATE TABLE IF NOT EXISTS history (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        user_id INTEGER,
-                        caption TEXT,
-                        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)''')
+    cursor.execute('''CREATE TABLE IF NOT EXISTS user_state (
+                        user_id INTEGER PRIMARY KEY,
+                        category TEXT,
+                        language TEXT)''')
     cursor.execute('''CREATE TABLE IF NOT EXISTS stats (
                         key TEXT PRIMARY KEY,
                         value INTEGER)''')
@@ -83,525 +66,320 @@ def init_db():
 
 init_db()
 
-def db_add_favorite(user_id: int, caption: str):
+def set_user_state(user_id: int, category: str = None, language: str = None):
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
-    cursor.execute("INSERT INTO favorites (user_id, caption) VALUES (?, ?)", (user_id, caption))
+    cursor.execute("SELECT category, language FROM user_state WHERE user_id = ?", (user_id,))
+    row = cursor.fetchone()
+    
+    cur_cat = category if category is not None else (row[0] if row else "aesthetic")
+    cur_lang = language if language is not None else (row[1] if row else "english")
+    
+    cursor.execute('''INSERT OR REPLACE INTO user_state (user_id, category, language) 
+                      VALUES (?, ?, ?)''', (user_id, cur_cat, cur_lang))
     conn.commit()
     conn.close()
 
-def db_get_favorites(user_id: int) -> List[str]:
+def get_user_state(user_id: int):
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
-    cursor.execute("SELECT caption FROM favorites WHERE user_id = ? ORDER BY id DESC LIMIT 15", (user_id,))
-    rows = cursor.fetchall()
+    cursor.execute("SELECT category, language FROM user_state WHERE user_id = ?", (user_id,))
+    row = cursor.fetchone()
     conn.close()
-    return [row[0] for row in rows]
+    if row:
+        return {"category": row[0], "language": row[1]}
+    return {"category": "aesthetic", "language": "english"}
 
-def db_add_history(user_id: int, caption: str):
+def db_increment_stats():
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
-    cursor.execute("INSERT INTO history (user_id, caption) VALUES (?, ?)", (user_id, caption))
     cursor.execute("UPDATE stats SET value = value + 1 WHERE key = 'total_generated'")
     conn.commit()
     conn.close()
 
-def db_get_stats() -> dict:
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute("SELECT COUNT(DISTINCT user_id) FROM history")
-    total_users = cursor.fetchone()[0]
-    cursor.execute("SELECT value FROM stats WHERE key = 'total_generated'")
-    row = cursor.fetchone()
-    total_gen = row[0] if row else 0
-    conn.close()
-    return {"users": total_users, "generated": total_gen}
-
-
 # =====================================================================
-# 3. RATE LIMITING (ANTI-SPAM)
+# 3. EXPANDED PRE-DEFINED CATEGORIES & CAPTIONS DATA
 # =====================================================================
-USER_LAST_ACTION = {}
-RATE_LIMIT_SECONDS = 1.5
-
-def check_rate_limit(user_id: int) -> bool:
-    now = time.time()
-    last_time = USER_LAST_ACTION.get(user_id, 0)
-    if now - last_time < RATE_LIMIT_SECONDS:
-        return False
-    USER_LAST_ACTION[user_id] = now
-    return True
-
-
-# =====================================================================
-# 4. CAPTION ENGINE (Size: Short/Medium/Long & Style: Normal/Styling)
-# =====================================================================
-TONES = ["romantic", "attitude", "savage", "funny", "sad", "emotional", "deep", "sigma", "islamic", "motivation", "luxury", "cute", "aesthetic"]
-LANGUAGES = ["english", "bangla", "banglish"]
-
 CATEGORIES = {
-    "attitude": {
-        "label": "😎 Attitude",
-        "keywords": ["attitude", "swag", "boss", "confidence", "savage", "ego", "king", "queen"],
-        "templates": [
-            "I don't chase, I attract. {topic} energy only. 😎",
-            "My {topic} game is undefeated and unmatched.",
-            "Not everyone will get {topic}, and that's exactly the point.",
-            "Walking alone because {topic} standards are too high for ordinary people."
-        ],
-        "hashtags": ["#Attitude", "#Savage", "#Boss", "#Confidence", "#SwagStatus", "#NoFilter"],
+    "aesthetic": {
+        "label": "✨ Aesthetic Caption",
+        "templates": {
+            "short": ["Living my best life in silence. ✨", "Soft colors and quiet moments.", "Pure soul, peaceful mind."],
+            "medium": ["Some moments in life cannot be measured by time, but by how deeply they touch your soul.", "Creating a life that feels good on the inside, not just one that looks good on the outside."],
+            "long": ["In a world full of noise, finding peace in the little details is an art. Let your mind wander where the Wi-Fi is weak and your heart feels completely at home."]
+        },
+        "hashtags": ["#Aesthetic", "#Vibes", "#Peaceful", "#Mood", "#ExplorePage"]
     },
-    "love": {
-        "label": "❤️ Love",
-        "keywords": ["love", "romance", "crush", "couple", "valentine", "heart", "partner", "bae"],
-        "templates": [
-            "Every love story is beautiful, but ours about {topic} is my favorite. ❤️",
-            "You + me + {topic} = forever.",
-            "Falling for {topic} was the easiest and best thing I've ever done.",
-        ],
-        "hashtags": ["#Love", "#Couple", "#InLove", "#Romance", "#SoulMate", "#TogetherForever"],
-    },
-    "motivation": {
-        "label": "🔥 Motivation",
-        "keywords": ["motivation", "grind", "success", "hustle", "goals", "gym", "workout", "fitness"],
-        "templates": [
-            "{topic} isn't given, it's earned through blood and sweat. Keep grinding. 🔥",
-            "Every expert in {topic} was once a complete beginner. Don't stop.",
-            "Turn your {topic} struggles into your biggest flex tomorrow.",
-        ],
-        "hashtags": ["#Motivation", "#Grind", "#Success", "#Hustle", "#GoalDigger", "#Mindset"],
-    },
-    "gaming": {
-        "label": "🎮 Gaming",
-        "keywords": ["gaming", "game", "esports", "gamer", "streamer", "ff", "free fire", "pubg", "minecraft"],
-        "templates": [
-            "Eat. Sleep. {topic}. Repeat. 🎮🔥",
-            "Warning: {topic} in progress, respawn not guaranteed for enemies.",
-            "My reflexes say pro player, my rank in {topic} says keep trying. 😅",
-        ],
-        "hashtags": ["#Gaming", "#Gamer", "#GameOn", "#Esports", "#PlayerOne", "#GG", "#FreeFire"],
+    "stylish": {
+        "label": "💎 Stylish Caption",
+        "templates": {
+            "short": ["Classy is when you have a lot to say but you stay silent. 🖤", "Born to stand out, never to fit in.", "Elegance is an attitude."],
+            "medium": ["I don't compete for a spot, I create my own lane. Watch and learn.", "Too glam to give a damn, too chic to repeat."],
+            "long": ["Style is a way to say who you are without having to speak. Keep your heels, head, and standards high because standard is something you never compromise."]
+        },
+        "hashtags": ["#Stylish", "#Classy", "#Elegance", "#Swag", "#BossLife"]
     },
     "islamic": {
-        "label": "🌙 Islamic",
-        "keywords": ["islamic", "allah", "quran", "namaz", "dua", "juma", "faith", "sabr"],
-        "templates": [
-            "Verily, with hardship comes ease. Trust Allah's plan regarding {topic}. 🌙",
-            "Do not despair, Allah is with those who have patience with {topic}.",
-            "Keep your heart pure and intentions sincere in {topic} for the sake of Allah.",
-        ],
-        "hashtags": ["#Islamic", "#Allah", "#Quran", "#Dua", "#Sabr", "#Alhamdulillah"],
+        "label": "🌙 Islamic Caption",
+        "templates": {
+            "short": ["Verily, with hardship comes ease. 🌙", "Trust Allah's perfect timing.", "Alhamdulillah always."],
+            "medium": ["Do not despair, for Allah is with those who have patience through every storm.", "Keep your heart pure and intentions sincere for the sake of Allah alone."],
+            "long": ["No matter how dark the night is, the morning light of hope given by Allah will always find its way to your soul. Trust His plan blindly."]
+        },
+        "hashtags": ["#Islamic", "#Allah", "#Quran", "#Dua", "#Alhamdulillah"]
+    },
+    "motivation": {
+        "label": "🔥 Motivation & Gym",
+        "templates": {
+            "short": ["Sweat today, shine tomorrow. 🔥", "Be stronger than your excuses.", "Hustle in silence, let success make the noise."],
+            "medium": ["The body achieves what the mind believes. Push past your limits every single day.", "Hard work beats talent when talent doesn't work hard."],
+            "long": ["Success isn't given to you on a silver platter, you have to earn it through blood, sweat, and relentless discipline every single day of your life."]
+        },
+        "hashtags": ["#Motivation", "#GymLife", "#Hustle", "#Fitness", "#HardWork"]
+    },
+    "success": {
+        "label": "🚀 Success & Hustle",
+        "templates": {
+            "short": ["Focus on the goal. 🚀", "Building an empire from scratch.", "Dream big, work hard."],
+            "medium": ["Don't stop when you're tired, stop when you're done. Your future self will thank you.", "Success is not overnight; it's a small daily progress adding up."],
+            "long": ["They will laugh at your dreams until you succeed, then they will ask how you did it. Keep your head down and let your achievements do all the talking."]
+        },
+        "hashtags": ["#Success", "#Entrepreneur", "#Mindset", "#Goals", "#HustleHard"]
+    },
+    "friendship": {
+        "label": "🤝 Friendship & Friends",
+        "templates": {
+            "short": ["Partners in crime. 🤝", "Good times + Crazy friends = Great memories.", "Chosen family."],
+            "medium": ["We didn't realize we were making memories, we just knew we were having fun together.", "True friends are never apart, maybe in distance but never in heart."],
+            "long": ["A real friend is one who walks in when the rest of the world walks out. Grateful for the ones who know all my flaws and still choose to stay."]
+        },
+        "hashtags": ["#Friendship", "#BestFriends", "#Memories", "#SquadGoals", "#Brotherhood"]
     },
     "sad": {
-        "label": "😢 Sad",
-        "keywords": ["sad", "broken", "alone", "pain", "heartbreak", "crying"],
-        "templates": [
-            "Some days {topic} just hurts more than words can express.",
-            "Smiling on the outside, silently fighting battles about {topic} on the inside.",
-            "Not every wound regarding {topic} shows on the skin.",
-        ],
-        "hashtags": ["#Sad", "#Alone", "#BrokenHeart", "#Pain", "#DeepThoughts", "#Healing"],
+        "label": "😢 Sad Caption",
+        "templates": {
+            "short": ["Some wounds never truly heal.", "Smiling outside, breaking inside.", "Silent tears speak the loudest."],
+            "medium": ["It hurts when the person who gave you the best memories becomes a memory themselves.", "Not every broken heart shows visible scars on the skin."],
+            "long": ["Sometimes you just need to disconnect from the world and let yourself feel everything, because holding onto fake smiles hurts way more than real tears."]
+        },
+        "hashtags": ["#Sad", "#Heartbroken", "#Alone", "#DeepThoughts", "#Pain"]
     },
-    "general": {
-        "label": "✨ General",
-        "keywords": [],
-        "templates": [
-            "Living my absolute best life, one {topic} moment at a time. ✨",
-            "{topic} hits different when you experience it truly.",
-            "Just here enjoying the pure {topic} vibes.",
-            "Making {topic} look completely effortless."
-        ],
-        "hashtags": ["#Vibes", "#Mood", "#InstaGood", "#Blessed", "#DailyLife"],
+    "funny": {
+        "label": "😂 Funny Caption",
+        "templates": {
+            "short": ["I need a 6-month vacation, twice a year. 😂", "Error 404: Bio not found.", "Born to rest, forced to work."],
+            "medium": ["I'm not lazy, I'm just on energy-saving mode until further notice.", "My bed and I are deeply in love, but my alarm clock is jealous."],
+            "long": ["I put the 'pro' in procrastinate. If laziness was an Olympic sport, I would definitely win the gold medal without even standing up from my couch."]
+        },
+        "hashtags": ["#Funny", "#Humor", "#LaughOutLoud", "#Relatable", "#Vibes"]
+    },
+    "attitude": {
+        "label": "😎 Attitude Caption",
+        "templates": {
+            "short": ["I don't chase, I attract. 😎", "My attitude is based on how you treat me.", "Unmatched energy only."],
+            "medium": ["I am who I am. Your approval is neither required nor desired.", "Treat me like a king and I'll treat you like a queen, treat me like a game and I'll show you how it's played."],
+            "long": ["People will always judge your journey without knowing your struggles. Let them talk, because your success will answer all their questions permanently."]
+        },
+        "hashtags": ["#Attitude", "#Savage", "#King", "#Confidence", "#Fearless"]
+    },
+    "travel": {
+        "label": "✈️ Travel & Nature",
+        "templates": {
+            "short": ["Collect moments, not things. ✈️", "Born to roam, world is my home.", "Escape the ordinary."],
+            "medium": ["To travel is to live, and nature has the best therapy for a tired soul.", "The view is always worth the steep climb."],
+            "long": ["Traveling opens your mind, fills your heart with wonder, and leaves you with stories that last a lifetime. Let's find some beautiful places to get lost."]
+        },
+        "hashtags": ["#Travel", "#Nature", "#Wanderlust", "#Explorer", "#Adventure"]
+    },
+    "couple": {
+        "label": "❤️ Couple & Love",
+        "templates": {
+            "short": ["My favorite person. ❤️", "You + Me = Forever.", "Home is wherever you are."],
+            "medium": ["Every love story is beautiful, but ours is my absolute favorite piece of art.", "You are my today and all of my tomorrows."],
+            "long": ["I never truly understood what it meant to find my home in another person until the day I met you. Holding your hand is my safest place on earth."]
+        },
+        "hashtags": ["#CoupleGoals", "#Love", "#Soulmate", "#Forever", "#TrueLove"]
     }
 }
 
-QUOTES_DB = {
-    "success": ["Success is not final; failure is not fatal: It is the courage to continue that counts."],
-    "life": ["Life is what happens when you're busy making other plans."]
-}
-
-def detect_category(topic: str) -> str:
-    topic_lower = topic.lower()
-    for key, data in CATEGORIES.items():
-        if key == "general":
-            continue
-        for kw in data["keywords"]:
-            if kw in topic_lower:
-                return key
-    return "general"
-
-def generate_multiple_captions(topic: str, tone: str = "general", count: int = 1, lang: str = "english", length: str = "medium", style: str = "styling") -> List[dict]:
-    topic = topic.strip()
-    category = detect_category(topic)
-    data = CATEGORIES.get(category, CATEGORIES["general"])
+def generate_batch_captions(cat_key: str, lang: str, offset: int = 0) -> List[str]:
+    cat_data = CATEGORIES.get(cat_key, CATEGORIES["aesthetic"])
+    all_templates = []
     
-    results = []
-    templates_pool = data["templates"] * 3
-    random.shuffle(templates_pool)
-
-    for i in range(count):
-        template = templates_pool[i % len(templates_pool)]
-        base_caption = template.format(topic=topic)
-
-        # Size adjustment
-        if length == "short":
-            caption = f"✨ {topic.capitalize()} vibes."
-        elif length == "long":
-            caption = f"🌟 Detailed perspective: {base_caption} Keep pushing forward and enjoy every single step of this amazing journey!"
-        else:
-            caption = base_caption
-
-        # Style adjustment
-        if style == "normal":
-            caption = caption.replace("✨", "").replace("🔥", "").replace("😎", "").replace("❤️", "").strip()
-
-        # Language formatting
+    for size in ["short", "medium", "long"]:
+        for t in cat_data["templates"][size]:
+            size_badge = "📌 [Short]" if size == "short" else ("📝 [Medium]" if size == "medium" else "📜 [Long]")
+            all_templates.append((t, size_badge))
+            
+    generated = []
+    pool = all_templates * 4
+    random.seed(hash(cat_key) + offset)
+    random.shuffle(pool)
+    
+    for i in range(10):
+        template_text, size_badge = pool[i % len(pool)]
+        caption = template_text
+        
         if lang == "bangla":
-            caption = f"✨ {topic} সম্পৰ্কে দারুণ একটি মুহূর্ত। {caption}"
+            caption = f"✨ সুন্দর একটি মুহূর্ত। {caption}"
         elif lang == "banglish":
-            caption = f"Mast {topic} vibe! {caption}"
-
-        base_tags = data["hashtags"]
-        extra_tags = ["#Trending2026", "#ViralPost", "#ExplorePage", "#JisanGaming", "#TopCreator"]
-        selected_tags = random.sample(list(set(base_tags + extra_tags)), k=min(12, len(base_tags + extra_tags)))
-
-        results.append({
-            "caption": caption,
-            "hashtags": selected_tags,
-            "category": category,
-            "topic": topic,
-            "tone": tone,
-            "lang": lang,
-            "length": length,
-            "style": style,
-            "index": i + 1
-        })
-    return results
-
-def escape_md_v2(text: str) -> str:
-    special_chars = r"_*[]()~`>#+-=|{}.!"
-    return re.sub(f"([{re.escape(special_chars)}])", r"\\\1", str(text))
-
-def format_caption_message(result: dict) -> str:
-    caption_escaped = escape_md_v2(result["caption"])
-    hashtags_escaped = escape_md_v2(" ".join(result["hashtags"]))
-    category_label = escape_md_v2(CATEGORIES.get(result["category"], CATEGORIES["general"])["label"])
-
-    return (
-        f"*{category_label} Caption #{result['index']}* \n"
-        f"⚙️ `[Tone: {result['tone']} | Size: {result['length']} | Style: {result['style']} | Lang: {result['lang']}]`\n\n"
-        f"{caption_escaped}\n\n"
-        f"{hashtags_escaped}\n\n"
-        f"_Tap block below to copy:_\n"
-        f"`{escape_md_v2(result['caption'] + ' ' + ' '.join(result['hashtags']))}`"
-    )
-
-def build_caption_keyboard(topic: str) -> InlineKeyboardMarkup:
-    safe_topic = topic[:30]
-    buttons = [
-        [
-            InlineKeyboardButton("🔁 Regenerate", callback_data=f"regen|{safe_topic}"),
-            InlineKeyboardButton("⭐ Save to Category", callback_data=f"save|{safe_topic}"),
-        ],
-        [
-            InlineKeyboardButton("🔥 Savage", callback_data=f"tone|savage|{safe_topic}"),
-            InlineKeyboardButton("❤️ Romantic", callback_data=f"tone|romantic|{safe_topic}"),
-            InlineKeyboardButton("😎 Attitude", callback_data=f"tone|attitude|{safe_topic}"),
-        ],
-        [
-            InlineKeyboardButton("📂 Categories Menu", callback_data="show_categories"),
-        ],
-    ]
-    return InlineKeyboardMarkup(buttons)
-
+            caption = f"Mast vibe! {caption}"
+            
+        tags = " ".join(random.sample(cat_data["hashtags"], k=min(4, len(cat_data["hashtags"]))))
+        full_text = f"{size_badge} {caption}\n\n{tags}"
+        generated.append(full_text)
+        
+    return generated
 
 # =====================================================================
-# 5. COMMAND HANDLERS & CATEGORY MENUS
+# 4. BOT HANDLERS (Flow like Name Maker Bot)
 # =====================================================================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
-    if not check_rate_limit(user_id):
-        await update.message.reply_text("⚠️ Please wait a moment.")
-        return
-
-    user_first_name = escape_md_v2(update.effective_user.first_name if update.effective_user else "there")
+    name = update.effective_user.first_name if update.effective_user else "Friend"
+    set_user_state(user_id, category="aesthetic", language="english")
+    
     welcome_text = (
-        f"🔥 *Welcome {user_first_name} to Caption Assistant!* 🔥\n\n"
-        "✨ নো টাইপিং ঝামেলা! নিচের **Categories Menu** বা **⭐ Saved Captions** বাটনে ক্লিক করেই সব কিছু দেখতে পারবেন।\n\n"
-        "📌 *Command Example:* \n"
-        "`/caption sunset --count 2 --short --normal --english`"
+        f"✨ <b>Welcome {name} to Caption Maker Bot!</b> ✨\n\n"
+        "Main aapke liye best Aesthetic, Stylish, Islamic, Motivation, Sad, Funny aur Attitude captions generate kar sakta hoon.\n\n"
+        "👇 <b>Niche diye gaye button se option select karein:</b>"
     )
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📂 Categories Menu", callback_data="show_categories")],
-        [InlineKeyboardButton("⭐ Saved Captions (All Items)", callback_data="history_callback")]
+        [InlineKeyboardButton("✍️ Make Caption", callback_data="make_caption")],
+        [InlineKeyboardButton("⭐ Saved Captions", callback_data="show_saved")]
     ])
+    
     if update.message:
-        await update.message.reply_text(welcome_text, parse_mode=ParseMode.MARKDOWN_V2, reply_markup=keyboard)
+        await update.message.reply_text(welcome_text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
     elif update.callback_query:
-        await update.callback_query.message.edit_text(welcome_text, parse_mode=ParseMode.MARKDOWN_V2, reply_markup=keyboard)
-
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    help_text = (
-        "*📖 Command Guide & Features*\n\n"
-        "• `/caption <topic> [--count 1-5] [--short/medium/long] [--styling/normal] [--lang] [--tone]`\n"
-        "• `/categories` — Open category menu & saved items\n"
-        "• `/hashtags <topic>` — Generate relevant hashtags\n"
-        "• `/bio <style>` — Generate social bios\n"
-        "• `/username <style>` — Generate unique usernames\n"
-        "• `/quote <topic>` — Get powerful quotes\n"
-        "• `/stats` — Check bot analytics"
-    )
-    await update.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN_V2)
-
-async def categories_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    lines = ["*📂 Caption Categories & Saved Hub*\n\nনিচের যেকোনো ক্যাটাগরিতে ক্লিক করে স্যাম্পল দেখুন অথবা আপনার সেভ করা ক্যাপশনগুলো একনজরে দেখে নিন:\n"]
-    buttons = [
-        [InlineKeyboardButton("⭐ My Saved Captions", callback_data="history_callback")]
-    ]
-    row = []
-    for key, data in CATEGORIES.items():
-        if key == "general":
-            continue
-        row.append(InlineKeyboardButton(data["label"], callback_data=f"sample|{key}"))
-        if len(row) == 2:
-            buttons.append(row)
-            row = []
-    if row:
-        buttons.append(row)
-    
-    buttons.append([InlineKeyboardButton("🏠 Main Menu", callback_data="main_menu")])
-
-    if update.message:
-        await update.message.reply_text(
-            "\n".join(lines),
-            parse_mode=ParseMode.MARKDOWN_V2,
-            reply_markup=InlineKeyboardMarkup(buttons),
-        )
-    elif update.callback_query:
-        await update.callback_query.message.edit_text(
-            "\n".join(lines),
-            parse_mode=ParseMode.MARKDOWN_V2,
-            reply_markup=InlineKeyboardMarkup(buttons),
-        )
-
-async def caption_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user_id = update.effective_user.id
-    if not check_rate_limit(user_id):
-        await update.message.reply_text("⚠️ Slow down! Please wait a moment.")
-        return
-
-    if not context.args:
-        await update.message.reply_text(
-            "⚠️ Please provide a topic.\n\n"
-            "📌 *Examples:* \n"
-            "`/caption beach --short --normal`\n"
-            "`/caption gym --count 3 --long --styling --bangla`",
-            parse_mode=ParseMode.MARKDOWN_V2,
-        )
-        return
-
-    full_text = " ".join(context.args)
-    tone = "general"
-    lang = "english"
-    length = "medium"
-    style = "styling"
-    count = 1
-
-    # Parse count
-    count_match = re.search(r'--(?:count\s*)?([1-5])', full_text)
-    if count_match:
-        count = int(count_match.group(1))
-        full_text = full_text.replace(count_match.group(0), "")
-
-    # Parse length flags
-    for ln in ["short", "medium", "long"]:
-        if f"--{ln}" in full_text.lower():
-            length = ln
-            full_text = full_text.replace(f"--{ln}", "")
-
-    # Parse style flags
-    for st in ["styling", "normal"]:
-        if f"--{st}" in full_text.lower():
-            style = st
-            full_text = full_text.replace(f"--{st}", "")
-
-    # Parse tone flags
-    for t in TONES:
-        if f"--{t}" in full_text.lower():
-            tone = t
-            full_text = full_text.replace(f"--{t}", "")
-
-    # Parse language flags
-    for lg in LANGUAGES:
-        if f"--{lg}" in full_text.lower():
-            lang = lg
-            full_text = full_text.replace(f"--{lg}", "")
-
-    topic = full_text.strip() or "life"
-
-    try:
-        results = generate_multiple_captions(topic, tone=tone, count=count, lang=lang, length=length, style=style)
-        
-        for res in results:
-            message = format_caption_message(res)
-            keyboard = build_caption_keyboard(topic)
-            db_add_history(user_id, res["caption"])
-            await update.message.reply_text(
-                message,
-                parse_mode=ParseMode.MARKDOWN_V2,
-                reply_markup=keyboard,
-            )
-            await asyncio.sleep(0.3)
-
-    except Exception as e:
-        logger.exception("Failed to generate captions: %s", e)
-        await update.message.reply_text("😕 An unexpected error occurred. Please try again.")
-
-async def show_saved_captions(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    query = update.callback_query
-    user_id = query.from_user.id
-    saved = db_get_favorites(user_id)
-    
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔙 Back to Categories", callback_data="show_categories")]
-    ])
-
-    if not saved:
-        text = "📂 আপনার ক্যাটাগরিতে কোনো সেভ করা ক্যাপশন নেই!\n\nযেকोनো ক্যাপশন তৈরির পর নিচে ⭐ **Save to Category** বাটনে ক্লিক করে এখানে জমা করতে পারেন।"
-    else:
-        text = "*⭐ Your Saved Captions Hub:*\n\n" + "\n\n".join([f"• `{escape_md_v2(s)}`" for s in saved])
-    
-    await query.message.edit_text(text, parse_mode=ParseMode.MARKDOWN_V2, reply_markup=keyboard)
-
-async def hashtags_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    topic = " ".join(context.args).strip() if context.args else "trending"
-    tags = [f"#{topic.capitalize()}", "#Viral2026", "#ExplorePage", "#InstaDaily", "#TrendingNow", "#CreatorHub", "#TopTags"]
-    tag_text = escape_md_v2(" ".join(tags))
-    await update.message.reply_text(f"*🏷️ Generated Hashtags for {escape_md_v2(topic)}:*\n\n`{tag_text}`", parse_mode=ParseMode.MARKDOWN_V2)
-
-async def bio_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    style = context.args[0].lower() if context.args else "aesthetic"
-    bios = [
-        f"✨ Living life on my own terms \\({style}\\).",
-        f"🚀 Building an empire | {style.capitalize()} soul & focus.",
-        f"💡 Dream big, execute bigger \\[{style}\\] ✨"
-    ]
-    bio_str = "\n\n".join([f"• `{escape_md_v2(b)}`" for b in bios])
-    await update.message.reply_text(f"*🧬 Generated Bios \\({style}\\):*\n\n{bio_str}", parse_mode=ParseMode.MARKDOWN_V2)
-
-async def username_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    style = context.args[0].lower() if context.args else "gaming"
-    usernames = [f"{style}_x_pro", f"itz_{style}_99", f"king_{style}_07", f"legend_{style}"]
-    un_str = "\n".join([f"`{escape_md_v2(u)}`" for u in usernames])
-    await update.message.reply_text(f"*👤 Unique Usernames \\({style}\\):*\n\n{un_str}", parse_mode=ParseMode.MARKDOWN_V2)
-
-async def quote_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    topic = context.args[0].lower() if context.args else "success"
-    quotes_list = QUOTES_DB.get(topic, ["The journey of a thousand miles begins with a single step."])
-    chosen = random.choice(quotes_list)
-    await update.message.reply_text(f"*💬 Curated Quote ({topic}):*\n\n\"{escape_md_v2(chosen)}\"", parse_mode=ParseMode.MARKDOWN_V2)
-
-async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    st = db_get_stats()
-    stats_text = (
-        f"*📊 Bot Analytics & Statistics*\n\n"
-        f"• Total Users Served: `{st['users']}`\n"
-        f"• Total Captions Generated: `{st['generated']}`\n"
-        f"• Status: `Online & Fully Operational 24/7`"
-    )
-    await update.message.reply_text(stats_text, parse_mode=ParseMode.MARKDOWN_V2)
-
-async def unknown_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text("🤔 Unknown command. Try `/caption <topic>` or /categories for options.", parse_mode=ParseMode.MARKDOWN_V2)
+        await update.callback_query.message.edit_text(welcome_text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
 
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     await query.answer()
+    user_id = query.from_user.id
+    data = query.data
 
     try:
-        data = query.data or ""
-        parts = data.split("|")
-        action = parts[0]
-        user_id = update.effective_user.id
-
-        if action == "regen":
-            topic = parts[1] if len(parts) > 1 else "life"
-            results = generate_multiple_captions(topic, count=1)
-            message = format_caption_message(results[0])
-            keyboard = build_caption_keyboard(topic)
-            await query.edit_message_text(message, parse_mode=ParseMode.MARKDOWN_V2, reply_markup=keyboard)
-
-        elif action == "save":
-            topic = parts[1] if len(parts) > 1 else "life"
-            result_cap = generate_multiple_captions(topic)[0]["caption"]
-            db_add_favorite(user_id, result_cap)
-            await query.message.reply_text("⭐ Caption saved successfully to your Categories Hub!")
-
-        elif action == "tone":
-            tone = parts[1]
-            topic = parts[2] if len(parts) > 2 else "life"
-            results = generate_multiple_captions(topic, tone=tone, count=1)
-            message = format_caption_message(results[0])
-            keyboard = build_caption_keyboard(topic)
-            await query.edit_message_text(message, parse_mode=ParseMode.MARKDOWN_V2, reply_markup=keyboard)
-
-        elif action == "sample":
-            category_key = parts[1] if len(parts) > 1 else "general"
-            template = random.choice(CATEGORIES.get(category_key, CATEGORIES["general"])["templates"])
-            sample_cap = template.format(topic="today")
-            keyboard = InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔙 Back to Categories", callback_data="show_categories")]
-            ])
-            await query.message.edit_text(f"*Sample:* \n\n`{escape_md_v2(sample_cap)}`", parse_mode=ParseMode.MARKDOWN_V2, reply_markup=keyboard)
-
-        elif action == "show_categories":
-            await categories_command(update, context)
-
-        elif action == "history_callback":
-            await show_saved_captions(update, context)
-
-        elif action == "main_menu":
+        if data == "main_menu":
             await start(update, context)
-
+            
+        elif data == "make_caption":
+            kb = InlineKeyboardMarkup([
+                [InlineKeyboardButton("🇬🇧 English", callback_data="lang_english")],
+                [InlineKeyboardButton("🇧🇩 Bangla", callback_data="lang_bangla")],
+                [InlineKeyboardButton("💬 Banglish", callback_data="lang_banglish")],
+                [InlineKeyboardButton("🏠 Main Menu", callback_data="main_menu")]
+            ])
+            await query.message.edit_text(
+                "🌐 <b>Kripya language select karein:</b>",
+                parse_mode=ParseMode.HTML,
+                reply_markup=kb
+            )
+            
+        elif data.startswith("lang_"):
+            lang = data.split("_")[1]
+            set_user_state(user_id, language=lang)
+            
+            # Categories button layout (2 columns for neat design)
+            keys = list(CATEGORIES.keys())
+            kb_buttons = []
+            for i in range(0, len(keys), 2):
+                row = [InlineKeyboardButton(CATEGORIES[keys[i]]["label"], callback_data=f"cat_{keys[i]}")]
+                if i + 1 < len(keys):
+                    row.append(InlineKeyboardButton(CATEGORIES[keys[i+1]]["label"], callback_data=f"cat_{keys[i+1]}"))
+                kb_buttons.append(row)
+                
+            kb_buttons.append([InlineKeyboardButton("🏠 Main Menu", callback_data="main_menu")])
+            kb = InlineKeyboardMarkup(kb_buttons)
+            
+            await query.message.edit_text(
+                f"✅ <b>Language:</b> {lang.capitalize()}\n\n👇 <b>Please choose a category below to see designs:</b>",
+                parse_mode=ParseMode.HTML,
+                reply_markup=kb
+            )
+            
+        elif data.startswith("cat_"):
+            cat_key = data.split("_")[1]
+            set_user_state(user_id, category=cat_key)
+            
+            st = get_user_state(user_id)
+            lang = st["language"]
+            
+            captions = generate_batch_captions(cat_key, lang, offset=0)
+            cat_label = CATEGORIES[cat_key]["label"]
+            
+            header = f"📁 <b>Category:</b> {cat_label}\n🌐 <b>Language:</b> {lang.capitalize()}\n📄 <b>Page:</b> 1 (10 Captions)\n\n👇 <b>Click on any caption text below to copy:</b>"
+            list_text = header + "\n\n" + "\n\n-------------------\n\n".join([f"<b>{idx+1}.</b> <code>{c}</code>" for idx, c in enumerate(captions)])
+            
+            kb = InlineKeyboardMarkup([
+                [InlineKeyboardButton("Next ➡️ (More 10)", callback_data=f"page|{cat_key}|1")],
+                [InlineKeyboardButton("🔄 New Category", callback_data="lang_" + lang), InlineKeyboardButton("🏠 Main Menu", callback_data="main_menu")]
+            ])
+            
+            db_increment_stats()
+            await query.message.edit_text(list_text, parse_mode=ParseMode.HTML, reply_markup=kb)
+            
+        elif data.startswith("page|"):
+            parts = data.split("|")
+            cat_key = parts[1]
+            page_num = int(parts[2])
+            next_page = page_num + 1
+            if next_page > 5:
+                next_page = 1
+                
+            st = get_user_state(user_id)
+            lang = st["language"]
+            
+            captions = generate_batch_captions(cat_key, lang, offset=next_page)
+            cat_label = CATEGORIES[cat_key]["label"]
+            
+            header = f"📁 <b>Category:</b> {cat_label}\n🌐 <b>Language:</b> {lang.capitalize()}\n📄 <b>Page:</b> {next_page}/5 (10 Captions)\n\n👇 <b>Click on any caption text below to copy:</b>"
+            list_text = header + "\n\n" + "\n\n-------------------\n\n".join([f"<b>{idx+1}.</b> <code>{c}</code>" for idx, c in enumerate(captions)])
+            
+            kb = InlineKeyboardMarkup([
+                [InlineKeyboardButton("Next ➡️ (More 10)", callback_data=f"page|{cat_key}|{next_page}")],
+                [InlineKeyboardButton("🔄 New Category", callback_data="lang_" + lang), InlineKeyboardButton("🏠 Main Menu", callback_data="main_menu")]
+            ])
+            await query.message.edit_text(list_text, parse_mode=ParseMode.HTML, reply_markup=kb)
+            
+        elif data == "show_saved":
+            kb = InlineKeyboardMarkup([[InlineKeyboardButton("🏠 Main Menu", callback_data="main_menu")]])
+            await query.message.edit_text("⭐ <b>Saved Captions feature is coming soon!</b>", parse_mode=ParseMode.HTML, reply_markup=kb)
+            
     except Exception as e:
-        logger.exception("Error handling callback: %s", e)
-        await query.message.reply_text("😕 Something went wrong.")
-
+        logger.exception("Callback error: %s", e)
 
 # =====================================================================
-# 6. MAIN APPLICATION INITIALIZATION
+# 5. SETUP COMMANDS & MAIN
 # =====================================================================
+async def setup_commands(application: Application):
+    commands = [
+        BotCommand("start", "বট শুরু করুন ও মেনু দেখুন"),
+    ]
+    await application.bot.set_my_commands(commands)
 
 async def main():
     Thread(target=run_server, daemon=True).start()
     
-    tokens = get_tokens()
-    if not tokens:
-        logger.error("No tokens found! Please set BOT_TOKEN or BOT_TOKEN_1.")
+    token = os.getenv("BOT_TOKEN")
+    if not token:
+        logger.error("No BOT_TOKEN found in environment variables!")
         return
 
-    for token in tokens:
-        app = Application.builder().token(token).concurrent_updates(True).build()
-        
-        # Handlers Registration
-        app.add_handler(CommandHandler("start", start))
-        app.add_handler(CommandHandler("help", help_command))
-        app.add_handler(CommandHandler("categories", categories_command))
-        app.add_handler(CommandHandler("caption", caption_command))
-        app.add_handler(CommandHandler("hashtags", hashtags_command))
-        app.add_handler(CommandHandler("bio", bio_command))
-        app.add_handler(CommandHandler("username", username_command))
-        app.add_handler(CommandHandler("quote", quote_command))
-        app.add_handler(CommandHandler("stats", stats_command))
-        app.add_handler(CallbackQueryHandler(button_callback))
-        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, unknown_text))
-        
-        await app.initialize()
-        await app.start()
-        await app.updater.start_polling(drop_pending_updates=True)
-        logger.info("Premium Local Caption Assistant started successfully and polling!")
+    app = Application.builder().token(token).build()
+
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CallbackQueryHandler(button_callback))
+
+    await app.initialize()
+    await setup_commands(app)
+    await app.start()
+    app.updater.start_polling(drop_pending_updates=True)
+    logger.info("Caption Maker Bot is running with expanded categories!")
 
     await asyncio.Event().wait()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.main(main())
